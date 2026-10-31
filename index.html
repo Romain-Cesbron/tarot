@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tarot">
+<meta name="theme-color" content="#1a1030">
+<title>Tarot</title>
+<style>
+  :root {
+    --bg: #1a1030;
+    --bg2: #2a1a4a;
+    --gold: #e6c36a;
+    /* Card size fits 5 cards across (deck + 4) in landscape */
+    --card-h: min(62vh, 17vw * 1.72);
+    --card-w: calc(var(--card-h) / 1.72);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: radial-gradient(ellipse at center, var(--bg2), var(--bg) 75%);
+    font-family: Georgia, "Times New Roman", serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--card-w) * 0.35);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  .deck, .slot { width: var(--card-w); height: var(--card-h); position: relative; flex: none; }
+  .slots { display: flex; gap: calc(var(--card-w) * 0.15); }
+  .slot { border-radius: 8px; border: 1px dashed rgba(230,195,106,0.18); }
+
+  .deck { cursor: pointer; }
+  .deck .face { position: absolute; inset: 0; }
+  .deck .face:nth-child(1) { transform: translate(6px, 6px); }
+  .deck .face:nth-child(2) { transform: translate(3px, 3px); }
+  .deck.empty { opacity: 0.35; }
+
+  .face {
+    border-radius: 8px;
+    border: 2px solid var(--gold);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+    overflow: hidden;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .back {
+    background: repeating-linear-gradient(45deg, #3b2468 0 6px, #2c1a52 6px 12px);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--gold);
+    font-size: calc(var(--card-w) * 0.35);
+  }
+  .front {
+    transform: rotateY(180deg);
+    background: linear-gradient(180deg, #fbf4e4, #eadcbc);
+    color: #2a1a4a;
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    padding: 8% 4%;
+    text-align: center;
+  }
+  .front .num { font-size: calc(var(--card-w) * 0.11); color: #6b4e1e; letter-spacing: 0.05em; }
+  .front .symbol { font-size: calc(var(--card-w) * 0.42); line-height: 1; }
+  .front .name { font-size: calc(var(--card-w) * 0.12); line-height: 1.15; font-weight: bold; }
+  .front img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .front.has-img { padding: 0; }
+  /* Reversed cards: turn the picture upside down */
+  .card.reversed .front img,
+  .card.reversed .front > div { transform: rotate(180deg); }
+  .card.reversed .front:not(.has-img) { flex-direction: column-reverse; }
+
+  /* A drawn card: sits in its slot, starts at the deck (via --dx/--dy), flies in, then flips */
+  .card {
+    position: absolute; inset: 0;
+    perspective: 900px;
+    -webkit-perspective: 900px;
+    transform: translate(var(--dx), var(--dy)) rotate(-8deg);
+    transition: transform 0.55s cubic-bezier(.2,.8,.3,1);
+    z-index: 2;
+  }
+  .card.placed { transform: translate(0, 0) rotate(0); }
+  .card.returning { transform: translate(var(--dx), var(--dy)) rotate(-8deg); transition-duration: 0.4s; }
+  .card-inner {
+    position: absolute; inset: 0;
+    transform-style: preserve-3d;
+    -webkit-transform-style: preserve-3d;
+    transition: transform 0.6s ease;
+  }
+  .card.flipped .card-inner { transform: rotateY(180deg); }
+  .card.returning .card-inner { transform: rotateY(0); transition-duration: 0.25s; }
+  .card .face { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+  <div class="face back">✦</div>
+  <div class="face back">✦</div>
+  <div class="face back">✦</div>
+</div>
+<div class="slots" id="slots">
+  <div class="slot"></div>
+  <div class="slot"></div>
+  <div class="slot"></div>
+  <div class="slot"></div>
+</div>
+
+<script>
+// Rider-Waite-Smith deck (1909, public domain) from Wikimedia Commons
+const IMG = f => `https://commons.wikimedia.org/wiki/Special:FilePath/${f}?width=400`;
+const MAJOR_FILES = ["00_Fool","01_Magician","02_High_Priestess","03_Empress","04_Emperor","05_Hierophant","06_Lovers","07_Chariot","08_Strength","09_Hermit","10_Wheel_of_Fortune","11_Justice","12_Hanged_Man","13_Death","14_Temperance","15_Devil","16_Tower","17_Star","18_Moon","19_Sun","20_Judgement","21_World"];
+const SUIT_FILES = { Wands: "Wands", Cups: "Cups", Swords: "Swords", Pentacles: "Pents" };
+
+const MAJOR = [
+  ["The Fool", "🌬️"], ["The Magician", "🪄"], ["The High Priestess", "🌙"], ["The Empress", "🌸"],
+  ["The Emperor", "🏛️"], ["The Hierophant", "📜"], ["The Lovers", "💞"], ["The Chariot", "🐎"],
+  ["Strength", "🦁"], ["The Hermit", "🏮"], ["Wheel of Fortune", "☸️"], ["Justice", "⚖️"],
+  ["The Hanged Man", "🙃"], ["Death", "🦋"], ["Temperance", "🏺"], ["The Devil", "⛓️"],
+  ["The Tower", "⚡"], ["The Star", "⭐"], ["The Moon", "🌕"], ["The Sun", "☀️"],
+  ["Judgement", "📯"], ["The World", "🌍"]
+];
+const ROMAN = ["0","I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX","XXI"];
+const SUITS = { Wands: "🔥", Cups: "🏆", Swords: "⚔️", Pentacles: "🪙" };
+const RANKS = ["Ace","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Page","Knight","Queen","King"];
+
+function buildDeck() {
+  const deck = MAJOR.map(([name, symbol], i) => ({ name, symbol, num: ROMAN[i], img: IMG(`RWS_Tarot_${MAJOR_FILES[i]}.jpg`) }));
+  for (const [suit, symbol] of Object.entries(SUITS)) {
+    RANKS.forEach((rank, i) => deck.push({
+      name: `${rank} of ${suit}`, symbol, num: suit.toUpperCase(),
+      img: IMG(`${SUIT_FILES[suit]}${String(i + 1).padStart(2, "0")}.jpg`)
+    }));
+  }
+  return deck;
+}
+
+// Fisher–Yates with crypto randomness
+function shuffle(arr) {
+  const r = new Uint32Array(1);
+  for (let i = arr.length - 1; i > 0; i--) {
+    crypto.getRandomValues(r);
+    const j = r[0] % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Preload every card picture so flips are instant
+buildDeck().forEach(c => { new Image().src = c.img; });
+
+const deckEl = document.getElementById("deck");
+const slots = [...document.querySelectorAll(".slot")];
+let deck = shuffle(buildDeck());
+let drawn = 0;
+let busy = false;
+
+function drawCard() {
+  const card = deck.pop();
+  const slot = slots[drawn];
+  const d = deckEl.getBoundingClientRect();
+  const s = slot.getBoundingClientRect();
+
+  const el = document.createElement("div");
+  el.className = "card";
+  // Half the cards come out reversed
+  const flip = new Uint32Array(1);
+  crypto.getRandomValues(flip);
+  if (flip[0] % 2) el.classList.add("reversed");
+  el.style.setProperty("--dx", `${d.left - s.left}px`);
+  el.style.setProperty("--dy", `${d.top - s.top}px`);
+  el.innerHTML = `
+    <div class="card-inner">
+      <div class="face back">✦</div>
+      <div class="face front has-img">
+        <img src="${card.img}" alt="${card.name}">
+      </div>
+    </div>`;
+  // If the picture can't load (e.g. offline), fall back to the simple drawn face
+  el.querySelector("img").onerror = () => {
+    const front = el.querySelector(".front");
+    front.classList.remove("has-img");
+    front.innerHTML = `<div class="num">${card.num}</div><div class="symbol">${card.symbol}</div><div class="name">${card.name}</div>`;
+  };
+  slot.appendChild(el);
+
+  el.getBoundingClientRect(); // commit start position before animating
+  el.classList.add("placed");
+  setTimeout(() => el.classList.add("flipped"), 450);
+
+  drawn++;
+  if (drawn === slots.length) deckEl.classList.add("empty");
+}
+
+// After 4 cards, tapping the deck gathers them back and reshuffles
+function collect() {
+  busy = true;
+  document.querySelectorAll(".card").forEach(el => el.classList.add("returning"));
+  setTimeout(() => {
+    document.querySelectorAll(".card").forEach(el => el.remove());
+    deck = shuffle(buildDeck());
+    drawn = 0;
+    deckEl.classList.remove("empty");
+    busy = false;
+  }, 450);
+}
+
+deckEl.addEventListener("click", () => {
+  if (busy) return;
+  if (drawn < slots.length) drawCard();
+  else collect();
+});
+</script>
+</body>
+</html>
